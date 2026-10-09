@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -11,6 +12,106 @@ import pytest
 
 from octop.infra.agents.providers.probe import build_probe_chat_model as _build_chat_model
 from octop.infra.agents.providers.probe import probe_provider_row
+
+
+@pytest.mark.parametrize(
+    ("saved", "model_id", "models", "expected"),
+    [
+        (
+            "saved-third",
+            None,
+            [
+                {"id": "disabled-first", "enabled": False},
+                {"id": "enabled-second", "enabled": True},
+                {"id": "saved-third", "enabled": True},
+            ],
+            "saved-third",
+        ),
+        (
+            "saved-third",
+            "disabled-first",
+            [
+                {"id": "disabled-first", "enabled": False},
+            ],
+            "disabled-first",
+        ),
+        ("saved-third", "manual-unlisted", [], "manual-unlisted"),
+        ("manual-unlisted", None, [], "manual-unlisted"),
+        (
+            None,
+            None,
+            [
+                {"id": "disabled-first", "enabled": False},
+                {"id": "enabled-second", "enabled": True},
+            ],
+            "enabled-second",
+        ),
+        (None, None, [{"id": "disabled-first", "enabled": False}], "disabled-first"),
+        (None, None, [], "gpt-4o-mini"),
+    ],
+)
+def test_probe_chat_model_selection(saved, model_id, models, expected) -> None:
+    row = SimpleNamespace(
+        name="custom",
+        kind="openai",
+        base_url="https://example.com/v1",
+        api_key="test-key",
+        extra_json=json.dumps({"probe_model": saved}),
+        get_models=lambda: models,
+    )
+    with patch("octop_harness.llm.factory.build_chat_model") as build:
+        _build_chat_model(row, model_id=model_id)
+    assert build.call_args.args[1].id == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_id,expected", [(None, "saved-embedding"), ("disabled-first", "disabled-first")]
+)
+async def test_embedding_probe_model_selection(model_id, expected) -> None:
+    row = _embedding_row(
+        extra_json=json.dumps({"probe_model": "saved-embedding"}),
+        models=[
+            {"id": "disabled-first", "embedding": True, "enabled": False},
+            {"id": "saved-embedding", "embedding": True, "enabled": True},
+        ],
+    )
+    response = httpx.Response(
+        200,
+        json={"data": [{"embedding": [0.1, 0.2]}]},
+        request=httpx.Request("POST", "https://api.example.com/v1/embeddings"),
+    )
+    post = AsyncMock(return_value=response)
+    with patch(
+        "octop.infra.agents.providers.probe.httpx.AsyncClient",
+        return_value=_mock_async_client(post=post),
+    ):
+        result = await probe_provider_row(row, model_id=model_id)
+    assert result["ok"] is True
+    assert post.call_args.kwargs["json"]["model"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_id,expected", [(None, "saved-third"), ("disabled-first", "disabled-first")]
+)
+async def test_onnx_probe_model_selection(model_id, expected) -> None:
+    row = _embedding_row(
+        name="onnx",
+        api_key="onnx",
+        extra_json=json.dumps({"probe_model": "saved-third"}),
+        models=[
+            {"id": "disabled-first", "enabled": False},
+            {"id": "enabled-second", "enabled": True},
+        ],
+    )
+    with patch(
+        "octop.infra.agents.providers.onnx_service.probe_local_model",
+        new=AsyncMock(return_value={"ok": True, "dim": 2, "latency_ms": 1}),
+    ) as probe:
+        result = await probe_provider_row(row, model_id=model_id)
+    assert result["ok"] is True
+    probe.assert_awaited_once_with(expected)
 
 
 def test_build_chat_model_includes_provider_id_and_model_name() -> None:

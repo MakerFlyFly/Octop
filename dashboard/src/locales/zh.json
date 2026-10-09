@@ -3318,7 +3318,7 @@
     "nameLabel": "名称",
     "namePlaceholder": "例如:my-openai",
     "baseUrlExtra": "OpenAI 兼容 endpoint 的 base URL,留空则使用官方默认。",
-    "defaultModelLabel": "默认模型",
+    "defaultModelLabel": "默认测试模型",
     "defaultModelPlaceholder": "例如:gpt-4o-mini",
     "noteLabel": "备注(可选)",
     "noteLabelShort": "备注",
@@ -3415,7 +3415,7 @@
     "onnxCacheDir": "缓存目录：{{dir}}",
     "onnxLocalCached": "已缓存模型",
     "onnxQuickDownload": "从目录快速下载…",
-    "defaultModelExtra": "测试连接时使用此模型；留空则使用第一个已启用的模型",
+    "defaultModelExtra": "用于提供商连接测试，不影响对话或任务的默认模型。保存后会记住选择；留空时优先使用已启用模型。",
     "deleteProviderFailedSimple": "删除模型服务失败"
   },
   "advancedSettings": {

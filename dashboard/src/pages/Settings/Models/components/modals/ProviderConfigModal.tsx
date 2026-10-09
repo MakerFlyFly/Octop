@@ -96,6 +96,10 @@ export function ProviderConfigModal({
   const [testing, setTesting] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [form] = Form.useForm<ProviderConfigForm>();
+  const initialProbeModelRef = useRef("");
+  const editingSessionRef = useRef<{ readonly providerId: number } | null>(
+    null,
+  );
   const [draftModels, setDraftModels] = useState<ProviderModel[]>([]);
 
   const hasApiKey = !!provider.api_key && provider.api_key.length > 0;
@@ -125,7 +129,9 @@ export function ProviderConfigModal({
 
   const enableModelAfterDownload = useCallback(
     async (modelId: string) => {
-      const currentDefault = (
+      const requestProviderId = provider.id;
+      const requestSession = editingSessionRef.current;
+      const currentProbeModel = (
         form.getFieldValue("model") as string | undefined
       )?.trim();
       const nextModels = draftModels.some((m) => m.id === modelId)
@@ -147,18 +153,26 @@ export function ProviderConfigModal({
           ];
       setDraftModels(nextModels);
       setFormDirty(true);
-      const defaultModel = currentDefault || modelId;
-      if (!currentDefault) {
+      const probeModel = currentProbeModel || modelId;
+      if (!currentProbeModel) {
         form.setFieldValue("model", modelId);
       }
       try {
-        await request(`${apiPrefix}/${provider.id}`, {
+        await request(`${apiPrefix}/${requestProviderId}`, {
           method: "PATCH",
           body: JSON.stringify({
             models: nextModels,
-            model: defaultModel,
+            model: probeModel,
           }),
         });
+        // Background saves can finish after the drawer has started a new edit.
+        if (
+          requestSession &&
+          requestSession.providerId === requestProviderId &&
+          editingSessionRef.current === requestSession
+        ) {
+          initialProbeModelRef.current = probeModel;
+        }
         if (isOnnx) {
           await onnxModelApi.updateConfig({
             enabled: true,
@@ -657,14 +671,15 @@ export function ProviderConfigModal({
     if (!open) return;
     // Only hydrate when the modal opens (or provider id changes), so
     // background refreshes / local model toggles do not reset the form.
-    const currentDefaultModel = provider.models?.length
-      ? provider.models[0].id
-      : "";
+    const session = { providerId: provider.id };
+    editingSessionRef.current = session;
+    const currentProbeModel = (provider.model ?? "").trim();
+    initialProbeModelRef.current = currentProbeModel;
     form.setFieldsValue({
       kind: provider.kind,
       base_url: provider.base_url ?? "",
       api_key: undefined,
-      model: currentDefaultModel,
+      model: currentProbeModel,
       note: provider.note ?? "",
       stream_usage: provider.stream_usage !== false,
     });
@@ -675,6 +690,10 @@ export function ProviderConfigModal({
       })),
     );
     setFormDirty(false);
+    return () => {
+      if (editingSessionRef.current === session)
+        editingSessionRef.current = null;
+    };
   }, [open, provider.id, form]);
 
   const handleModelsChange = (models: ProviderModel[]) => {
@@ -702,12 +721,10 @@ export function ProviderConfigModal({
       ) {
         payload.stream_usage = Boolean(values.stream_usage);
       }
-      // default model
-      const existingDefault = provider.models?.length
-        ? provider.models[0].id
-        : "";
-      if ((values.model ?? "") !== existingDefault)
-        payload.model = values.model?.trim() || null;
+      // Submit only edits since this drawer's opening or confirmed save.
+      const probeModel = (values.model ?? "").trim();
+      if (probeModel !== initialProbeModelRef.current)
+        payload.model = probeModel || null;
 
       const modelsChanged =
         JSON.stringify(
@@ -1038,17 +1055,15 @@ export function ProviderConfigModal({
           </>
         )}
 
-        {/* Default model — Select from the models list, or type freely */}
+        {/* Connectivity-test model — Select from the models list, or type freely */}
         <Form.Item
           name="model"
           label={t("models.defaultModelLabel")}
           extra={
-            isOnnx
-              ? t("models.defaultModelDownloadedOnly")
-              : t(
-                  "models.defaultModelExtra",
-                  "测试连接时使用此模型；留空则使用第一个已启用的模型",
-                )
+            <>
+              {t("models.defaultModelExtra")}
+              {isOnnx ? <> {t("models.defaultModelDownloadedOnly")}</> : null}
+            </>
           }
         >
           {draftModels.length ? (

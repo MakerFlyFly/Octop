@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -38,6 +39,34 @@ def test_stream_usage_patch_rewrites_extra_without_clearing_api_key() -> None:
     }
 
 
+def test_probe_model_patch_preserves_options_and_omits_api_key() -> None:
+    body = ProviderPatchBody.model_validate({"model": "chosen"})
+    updates = _provider_patch_updates(
+        body, current_extra_json='{"headers": {"X-A": "1"}, "stream_usage": false}'
+    )
+    assert set(updates) == {"extra_json"}
+    assert json.loads(updates["extra_json"]) == {
+        "headers": {"X-A": "1"},
+        "stream_usage": False,
+        "probe_model": "chosen",
+    }
+
+
+def test_explicit_options_clear_preserves_saved_probe_model() -> None:
+    body = ProviderPatchBody.model_validate({"extra_json": None})
+    updates = _provider_patch_updates(
+        body, current_extra_json='{"headers": {"X-A": "1"}, "probe_model": "chosen"}'
+    )
+    assert json.loads(updates["extra_json"]) == {"probe_model": "chosen"}
+
+
+def test_explicit_options_clear_without_probe_remains_null() -> None:
+    body = ProviderPatchBody.model_validate({"extra_json": None})
+    assert _provider_patch_updates(body, current_extra_json='{"headers": {}}') == {
+        "extra_json": None
+    }
+
+
 def test_patch_note_only_does_not_require_rehydrate() -> None:
     body = ProviderPatchBody.model_validate({"note": "ops memo"})
     assert _patch_requires_provider_rehydrate(body) is False
@@ -56,20 +85,29 @@ def test_patch_note_and_api_key_requires_rehydrate() -> None:
 
 
 @pytest.mark.asyncio
-async def test_admin_patch_note_only_skips_on_provider_changed() -> None:
+@pytest.mark.parametrize("payload", [{"note": "only note"}, {"model": "m1"}])
+async def test_admin_patch_note_or_probe_model_skips_on_provider_changed(
+    payload: dict[str, str],
+) -> None:
     on_changed = AsyncMock()
     row = MagicMock()
     row.id = 1
     row.name = "test-openai"
+    row.extra_json = None
     server = MagicMock()
     server.services.provider_repo.get.side_effect = [row, row]
     server.services.provider_repo.update = MagicMock()
     server.app_runtime.agent_registry.on_provider_changed = on_changed
 
-    body = ProviderPatchBody.model_validate({"note": "only note"})
+    body = ProviderPatchBody.model_validate(payload)
     await admin_patch_provider(provider_id=1, body=body, _=None, server=server)
 
-    server.services.provider_repo.update.assert_called_once_with(1, note="only note")
+    if "model" in payload:
+        server.services.provider_repo.update.assert_called_once_with(
+            1, extra_json='{"probe_model": "m1"}'
+        )
+    else:
+        server.services.provider_repo.update.assert_called_once_with(1, note="only note")
     on_changed.assert_not_awaited()
 
 

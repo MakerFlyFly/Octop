@@ -263,6 +263,14 @@ the server derives one from `prompt`.
 
 ## Providers
 
+Provider rows expose nullable `model`, the saved connectivity-test preference.
+Admin POST/PATCH accept this field. PATCH omission preserves it; `null`, empty,
+or whitespace-only strings clear it. Tests prefer an explicit `model_id`, then
+the saved preference, then an enabled model. The preference is stored in
+provider options and does not reorder models or change chat/task defaults.
+Updating other provider options preserves the preference unless `model` is
+explicitly changed or cleared.
+
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
 | `GET`    | `/providers` | user | providers visible to the user (own + shared) |

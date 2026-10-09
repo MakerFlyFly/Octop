@@ -3318,7 +3318,7 @@
     "nameLabel": "Name",
     "namePlaceholder": "e.g., my-openai",
     "baseUrlExtra": "OpenAI-compatible endpoint base URL. Leave blank to use the official default.",
-    "defaultModelLabel": "Default Model",
+    "defaultModelLabel": "Default test model",
     "defaultModelPlaceholder": "e.g., gpt-4o-mini",
     "noteLabel": "Note (optional)",
     "noteLabelShort": "Note",
@@ -3416,7 +3416,7 @@
     "onnxCacheDir": "Cache: {{dir}}",
     "onnxLocalCached": "Cached models",
     "onnxQuickDownload": "Quick download from catalog…",
-    "defaultModelExtra": "Model used by Test connection; leave empty to use the first enabled model"
+    "defaultModelExtra": "Used for provider connection tests without changing chat or task defaults. Saving remembers your choice; leave empty to prefer an enabled model."
   },
   "advancedSettings": {
     "description": "Manage runtime configuration and environment variables.",
