@@ -69,6 +69,8 @@ export interface ProviderRow {
   base_url: string | null;
   api_key: string | null;
   models: ProviderModel[];
+  /** Saved connectivity-test preference; null selects automatically. */
+  model?: string | null;
   note: string | null;
   enabled: boolean;
   /** Resolved: custom defaults off, bundled presets default on. */

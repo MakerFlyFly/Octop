@@ -11,6 +11,7 @@ from octop.infra.agents.providers.codex_oauth import (
     build_codex_headers,
     save_codex_token,
 )
+from octop.infra.agents.providers.probe import merge_probe_model_extra, provider_probe_model
 from octop.infra.utils.paths import PathLayout
 
 CODEX_PROVIDER_NAME = "openai-codex"
@@ -46,6 +47,7 @@ def apply_codex_credentials(
             note="ChatGPT OAuth (Codex)",
         )
     else:
+        extra_json = merge_probe_model_extra(extra_json, provider_probe_model(row))
         services.provider_repo.update(
             row.id,
             kind="openai",

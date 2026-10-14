@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from octop.api.deps import current_user, get_server, require_permission
 from octop.infra.agents.providers.codex_apply import (
@@ -30,9 +30,11 @@ from octop.infra.agents.providers.presets import load_provider_presets
 from octop.infra.agents.providers.probe import (
     fetch_openai_compatible_models,
     make_probe_provider_row,
+    merge_probe_model_extra,
     parse_provider_extra,
     probe_provider_row,
     provider_headers,
+    provider_probe_model,
 )
 from octop.infra.agents.providers.reasoning import reasoning_capability
 from octop.infra.agents.providers.resolved import list_resolved_models as _list_resolved_models
@@ -59,6 +61,10 @@ class ProviderCreateBody(BaseModel):
     stream_usage: bool | None = None
     models: list[dict[str, Any]] | None = None
     note: str | None = None
+    model: str | None = Field(
+        default=None,
+        description="Default connectivity-test model; does not affect chat or task routing.",
+    )
 
 
 class ProviderPatchBody(BaseModel):
@@ -70,6 +76,10 @@ class ProviderPatchBody(BaseModel):
     models: list[dict[str, Any]] | None = None
     note: str | None = None
     enabled: bool | None = None
+    model: str | None = Field(
+        default=None,
+        description="Connectivity-test model. Omit to preserve; null or blank clears the preference.",
+    )
 
 
 # Fields that affect harness factory / agent runtime when patched.
@@ -119,6 +129,14 @@ def _provider_patch_updates(
             updates["extra_json"] = merge_stream_usage_extra(base, body.stream_usage)
         else:
             updates["extra_json"] = body.extra_json
+    if "model" in fields:
+        updates["extra_json"] = merge_probe_model_extra(
+            updates.get("extra_json", current_extra_json), body.model
+        )
+    elif "extra_json" in updates:
+        saved = provider_probe_model(SimpleNamespace(extra_json=current_extra_json))
+        if updates["extra_json"] is not None or saved is not None:
+            updates["extra_json"] = merge_probe_model_extra(updates["extra_json"], saved)
     if "models" in fields:
         updates["models_json"] = json.dumps(body.models) if body.models is not None else None
     if "note" in fields:
@@ -186,6 +204,7 @@ def _row_to_dict(r: Any) -> dict[str, Any]:
         "base_url": r.base_url,
         "api_key": r.api_key,
         "models": models,
+        "model": provider_probe_model(r),
         "note": r.note,
         "enabled": bool(r.enabled),
         "stream_usage": resolve_provider_stream_usage(provider_name=r.name, extra=extra),
@@ -271,12 +290,15 @@ async def admin_create_provider(
     import json as _json
 
     models_json = _json.dumps(body.models) if body.models is not None else None
+    extra_json = merge_stream_usage_extra(body.extra_json, body.stream_usage)
+    if "model" in body.model_fields_set:
+        extra_json = merge_probe_model_extra(extra_json, body.model)
     pid = server.services.provider_repo.create(
         name=body.name,
         kind=body.kind,
         base_url=body.base_url,
         api_key=body.api_key,
-        extra_json=merge_stream_usage_extra(body.extra_json, body.stream_usage),
+        extra_json=extra_json,
         models_json=models_json,
         note=body.note,
     )
